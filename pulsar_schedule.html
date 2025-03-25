@@ -175,6 +175,57 @@
             border-radius: 4px;
             min-height: 60px;
         }
+
+        .todo-content:focus {
+            outline: 2px solid #1890ff;
+            border-radius: 2px;
+            background: #f0f9ff;
+        }
+
+        /* 空白待办项的占位符提示 */
+        .todo-content:empty::before {
+            content: "点击输入待办内容";
+            color: #999;
+        }
+
+        /* 在原有样式追加（约第108行后） */
+        .history-item {
+            padding: 8px;
+            margin: 6px 0;
+            border-radius: 4px;
+            transition: 0.2s;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .history-item:hover {
+            background: #f5f5f7;
+        }
+
+        .history-content {
+            flex: 1;
+            cursor: pointer;
+            position: relative;
+        }
+
+        .history-item:hover .history-content::after {
+            opacity: 1;
+        }
+
+        .restore-btn {
+            padding: 2px 8px;
+            border: 1px solid #1890ff;
+            color: #1890ff;
+            border-radius: 4px;
+            cursor: pointer;
+            background: none;
+            transition: 0.2s;
+        }
+
+        .restore-btn:hover {
+            background: #e6f7ff;
+        }
     </style>
 </head>
 <body>
@@ -523,6 +574,7 @@
         });
 
         // 历史面板控制
+        // 在历史面板控制函数中添加恢复功能（约第352行）
         function showHistory(groupId) {
             const panel = document.querySelector('.history-panel');
             panel.classList.toggle('active');
@@ -533,14 +585,50 @@
             // 加载对应分组的历史记录
             const history = JSON.parse(localStorage.getItem('todoHistory') || '[]')
                 .filter(item => item.group === groupId)
-                .map(item => `
-                    <div class="history-item">
+                .map((item, index) => `
+                    <div class="history-item" data-index="${index}">
                         <span>${new Date(item.completedAt).toLocaleString()}</span>
-                        <div>${item.text}</div>
+                        <div class="history-content">${item.text}</div>
+                        <button class="restore-btn">↺ 恢复</button>
                     </div>
                 `).join('');
             
             panel.querySelector('.history-list').innerHTML = history || '<div>暂无历史记录</div>';
+
+            // 添加恢复事件
+            panel.querySelectorAll('.restore-btn').forEach(btn => {
+                btn.addEventListener('click', function() {
+                    const index = this.closest('.history-item').dataset.index;
+                    restoreTodoFromHistory(groupId, index);
+                });
+            });
+        }
+
+        // 新增恢复功能函数
+        function restoreTodoFromHistory(groupId, historyIndex) {
+            const history = JSON.parse(localStorage.getItem('todoHistory') || '[]');
+            const targetGroup = Array.from(document.querySelectorAll('.group-header'))
+                .find(group => group.dataset.id === groupId);
+
+            if (!targetGroup) {
+                alert('原始分组已不存在');
+                return;
+            }
+
+            const todoData = history[historyIndex];
+            createTodoItem(targetGroup, {
+                text: todoData.text,
+                completed: false,
+                created: Date.now()
+            });
+
+            // 从历史记录中移除
+            history.splice(historyIndex, 1);
+            localStorage.setItem('todoHistory', JSON.stringify(history));
+            
+            // 刷新历史面板
+            showHistory(groupId);
+            saveGroups();
         }
 
         function exportData() {
@@ -598,6 +686,7 @@
                 });
             }
         }
+        
     </script>
 </body>
 </html>
