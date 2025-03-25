@@ -1,0 +1,603 @@
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>横向待办分组</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 10px;
+            overflow-x: auto;
+        }
+
+        /* 横向布局容器 */
+        .groups-container {
+            display: flex;
+            gap: 10px;
+            align-items: start;
+            padding: 15px 0 15px; /* 增加顶部padding */
+            width: 100%;
+        }
+
+        /* 分组卡片样式 */
+        .group-header {
+            position: relative;
+            width: calc(20% - 10px);
+            padding: 12px;
+            background: #f5f5f7;
+            border-radius: 8px;
+            cursor: move;
+            transition: 0.2s;
+            border: 1px solid #e0e0e0;
+        }
+
+        /* 悬停操作按钮容器 */
+        .action-buttons {
+            position: absolute;
+            top: -24px;
+            left: 50%;
+            transform: translateX(-50%);
+            display: none;
+            gap: 4px;
+            right: 0;
+            justify-content: space-between;
+            background: white;
+            padding: 4px;
+            border-radius: 4px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+
+        .group-header:hover .action-buttons,
+        .action-buttons:hover {
+            display: flex;
+            width: 90px;
+        }
+
+        .action-btn {
+            padding: 2px 8px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+            line-height: 1.5;
+        }
+
+        .delete-btn {
+            background: #ff4d4f;
+            color: white;
+        }
+
+        .history-btn {
+            background: #1890ff;
+            color: white;
+        }
+
+        /* 竖排新建按钮 */
+        #addGroupBtn {
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            padding: 8px 8px;
+            background: #007bff;
+            color: white;
+        }
+
+        .group-rename-input {
+            width: 100%;
+            border: none;
+            background: transparent;
+            text-align: center;
+            font-size: inherit;
+        }
+        
+        /* 添加待办事项相关样式 */
+        .todo-list {
+            margin-top: 8px;
+            min-height: 40px;
+        }
+
+        .todo-item {
+            display: flex;
+            align-items: flex-start;
+            margin: 4px 0;
+            padding: 6px;
+            background: white;
+            border-radius: 4px;
+            cursor: move;
+            transition: 0.2s;
+        }
+
+        .todo-item:hover {
+            background: #f8f9fa;
+        }
+        
+        .todo-item .delete-btn {
+            margin-left: 0px;
+            padding: 0px 4px;
+            font-size: 16px;
+            color: #999;
+            background: none;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            visibility: hidden; /* 默认隐藏 */
+        }
+
+        .todo-item:hover .delete-btn {
+            visibility: visible; /* 悬停显示 */
+        }
+
+        
+        .todo-checkbox {
+            margin-right: 8px;
+            margin-top: 3px;
+        }
+
+        .todo-content {
+            flex: 1;
+            word-break: break-word;
+        }
+
+        .add-todo-btn {
+            width: 100%;
+            margin-top: 8px;
+            padding: 4px;
+            border: 1px dashed #ccc;
+            background: none;
+            cursor: pointer;
+        }
+
+        .history-panel {
+            position: fixed;
+            top: 20px;
+            right: -320px;
+            width: 280px;
+            background: white;
+            box-shadow: -2px 0 8px rgba(0,0,0,0.1);
+            transition: 0.3s;
+            padding: 20px;
+            z-index: 1000; /* 确保在最上层 */
+        }
+
+        .history-btn {
+            position: relative; /* 为点击事件准备 */
+        }
+
+        .history-panel.active {
+            right: 20px;
+        }
+        
+        .todo-item.dragging {
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        }
+
+        /* 跨分组拖动时的容器高亮 */
+        .todo-list.drop-target {
+            background: #f8f9fa;
+            box-shadow: inset 0 0 0 2px #1890ff;
+            border-radius: 4px;
+            min-height: 60px;
+        }
+    </style>
+</head>
+<body>
+    <div class="groups-container" id="groupsContainer">
+        <button id="addGroupBtn">新<br>建<br>分<br>组</button>
+    </div>
+    
+    <div class="history-panel">
+        <h3>历史记录</h3>
+        <div class="history-list"></div>
+        <button class="close-btn" onclick="document.querySelector('.history-panel').classList.remove('active')">关闭</button>
+    </div>
+
+    <div style="position: fixed; bottom: 20px; right: 20px; display: flex; gap: 10px; background: white; padding: 10px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+        <input type="file" id="importFile" hidden accept=".json" 
+               onchange="importData(this.files[0])">
+        <button style="padding: 8px 12px; background: #28a745; color: white; border: none; border-radius: 4px; cursor: pointer;" 
+                onclick="exportData()">导出数据</button>
+        <button style="padding: 8px 12px; background: #17a2b8; color: white; border: none; border-radius: 4px; cursor: pointer;" 
+                onclick="document.getElementById('importFile').click()">导入数据</button>
+    </div>
+
+    <script>
+        let draggedItem = null;
+        const STORAGE_KEY = 'todoGroups';
+        const dragState = {
+            draggedTodo: null,
+            sourceGroup: null
+        };
+
+        // 初始化加载数据
+        document.addEventListener('DOMContentLoaded', () => {
+            initBackupRecovery();
+            const savedGroups = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
+            
+            // 首次使用创建默认分组
+            if (savedGroups.length === 0) {
+                const defaultGroups = [
+                    { id: Date.now(), name: '短期日程', todos: [], order: 0 },
+                    { id: Date.now()+1, name: '长期计划', todos: [], order: 1 }
+                ];
+                localStorage.setItem(STORAGE_KEY, JSON.stringify(defaultGroups));
+                savedGroups.push(...defaultGroups);
+            }
+
+            // 加载分组
+            savedGroups.sort((a, b) => a.order - b.order).forEach(groupData => {
+                const group = createGroupElement({
+                    id: groupData.id,
+                    name: groupData.name,
+                    todos: groupData.todos // 确保加载待办事项
+                });
+            });
+
+            // 加载历史记录
+            const history = JSON.parse(localStorage.getItem('todoHistory') || '[]');
+            // 可根据需要初始化历史面板
+        });
+
+        // 新建分组逻辑
+        document.getElementById('addGroupBtn').addEventListener('click', () => {
+            const group = createGroupElement({
+                name: `分组 ${document.querySelectorAll('.group-header').length + 1}`
+            });
+            saveGroups();
+        });
+
+        function createGroupElement(data) {
+            const group = document.createElement('div');
+            group.className = 'group-header';
+            group.dataset.id = data.id || Date.now(); // 添加唯一标识
+            group.draggable = true;
+            group.innerHTML = `
+                <div class="action-buttons">
+                    <div class="action-btn delete-btn">删除</div>
+                    <div class="action-btn history-btn">历史</div>
+                </div>
+                <div class="group-content">${data.name}</div>
+                <div class="todo-list"></div>
+                <button class="add-todo-btn">+ 添加</button>
+            `;
+
+            // 初始化待办事项
+            if (data.todos) {
+                data.todos.forEach(todo => createTodoItem(group, todo));
+            }
+
+            // 添加事件绑定
+            group.querySelector('.add-todo-btn').addEventListener('click', () => {
+                createTodoItem(group);
+                saveGroups();
+            });
+
+            // 事件绑定
+            const content = group.querySelector('.group-content');
+            content.addEventListener('dblclick', () => startRename(content));
+            
+            group.querySelector('.delete-btn').addEventListener('click', (e) => {
+                e.stopPropagation(); // 阻止事件冒泡
+                group.remove();
+                saveGroups();
+            });
+
+            setupDragEvents(group);
+
+            group.querySelector('.history-btn').addEventListener('click', function(e) {
+                e.stopPropagation();
+                showHistory(group.dataset.id); // 传递分组ID
+            });
+    
+            // 插入到添加按钮前
+            groupsContainer.insertBefore(group, addGroupBtn);
+            return group;
+        }
+
+        // 拖动逻辑
+        function setupDragEvents(element) {
+            element.addEventListener('dragstart', () => {
+                draggedItem = element;
+                element.style.opacity = '0.5';
+            });
+
+            element.addEventListener('dragend', () => {
+                element.style.opacity = '1';
+                draggedItem = null;
+                saveGroups();
+            });
+
+            element.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                const afterElement = getHorizontalDragAfterElement(e.clientX);
+                
+                if (afterElement == null) {
+                    groupsContainer.appendChild(draggedItem);
+                } else {
+                    groupsContainer.insertBefore(draggedItem, afterElement);
+                }
+            });
+        }
+
+        // 重命名功能
+        function startRename(contentElement) {
+            const input = document.createElement('input');
+            input.className = 'group-rename-input';
+            input.value = contentElement.textContent.trim();
+            
+            const parent = contentElement.parentElement;
+            parent.replaceChild(input, contentElement);
+            input.focus();
+            
+            input.addEventListener('blur', () => {
+                const newContent = document.createElement('div');
+                newContent.className = 'group-content';
+                newContent.textContent = input.value.trim() || '未命名';
+                parent.replaceChild(newContent, input);
+                newContent.addEventListener('dblclick', () => startRename(newContent));
+                saveGroups();
+            });
+        }
+
+        // 数据存储
+        function saveGroups() {
+            const groups = Array.from(document.querySelectorAll('.group-header')).map(group => ({
+                name: group.querySelector('.group-content').textContent, // 精确获取内容区域
+                order: Array.from(groupsContainer.children).indexOf(group)
+            }));
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(groups));
+        }
+
+        // 辅助函数
+        function getHorizontalDragAfterElement(x) {
+            return Array.from(groupsContainer.children)
+                .filter(child => child !== draggedItem && child.classList.contains('group-header'))
+                .reduce((closest, child) => {
+                    const box = child.getBoundingClientRect();
+                    const offset = x - box.left - box.width / 2;
+                    return offset < 0 && offset > closest.offset ? 
+                        { offset, element: child } : closest;
+                }, { offset: Number.NEGATIVE_INFINITY }).element;
+        }
+
+        function getVerticalDragAfterElement(container, y) {
+            const draggableElements = [...container.children]
+                .filter(child => 
+                    child.classList.contains('todo-item') && 
+                    child !== dragState.draggedTodo
+                );
+
+            return draggableElements.reduce((closest, child) => {
+                const box = child.getBoundingClientRect();
+                const offset = y - box.top - box.height / 2;
+                return offset < 0 && offset > closest.offset ? 
+                    { offset, element: child } : closest;
+            }, { offset: Number.NEGATIVE_INFINITY }).element;
+        }
+
+        // 创建待办事项项
+        function createTodoItem(group, data = {text: '', completed: false}) {
+            const todo = document.createElement('div');
+            todo.className = `todo-item ${data.completed ? 'completed' : ''}`;
+            todo.draggable = true;
+            todo.dataset.created = data.created || Date.now();
+            todo.innerHTML = `
+                <input type="checkbox" class="todo-checkbox" ${data.completed ? 'checked' : ''}>
+                <div class="todo-content" contenteditable="true">${data.text}</div>
+                <button class="delete-btn" font-size:20px">×</button>
+            `;
+
+            // 事件绑定
+            todo.querySelector('.todo-checkbox').addEventListener('change', function() {
+                moveToHistory(this.closest('.todo-item'), group);
+                saveGroups();
+            });
+
+            todo.querySelector('.delete-btn').addEventListener('click', () => {
+                todo.remove();
+                saveGroups();
+            });
+
+            todo.querySelector('.todo-content').addEventListener('blur', saveGroups);
+            
+            // 拖动功能
+            setupTodoDragEvents(todo, group);
+
+            group.querySelector('.todo-list').appendChild(todo);
+
+            const contentDiv = todo.querySelector('.todo-content');
+            setTimeout(() => {
+                contentDiv.focus();
+                const range = document.createRange();
+                const sel = window.getSelection();
+                range.selectNodeContents(contentDiv);
+                range.collapse(false); // 光标定位到末尾
+                sel.removeAllRanges();
+                sel.addRange(range);
+            }, 10); // 小延迟确保DOM更新完成
+            
+            return todo;
+        }
+
+        // 待办事项拖动逻辑
+        function setupTodoDragEvents(todo, group) {
+            
+            todo.addEventListener('dragstart', (e) => {
+                e.stopPropagation();
+                dragState.draggedTodo = todo;
+                dragState.sourceGroup = group; // 记录来源分组
+                todo.style.opacity = '0.5';
+                todo.classList.add('dragging');
+            });
+
+            todo.addEventListener('dragend', (e) => {
+                e.stopPropagation();
+                todo.style.opacity = '1';
+                dragState.draggedTodo = null;
+                todo.classList.remove('dragging');
+                saveGroups();
+                
+                // 清除所有指示线
+                group.querySelectorAll('.todo-item').forEach(item => {
+                    item.style.transform = 'none';
+                    item.style.margin = '4px 0';
+                });
+            });
+
+            todo.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                
+                const list = group.querySelector('.todo-list');
+                const afterElement = getVerticalDragAfterElement(list, e.clientY);
+                
+                // 清除旧指示线
+                list.querySelectorAll('.todo-item:not(.dragging)').forEach(item => {
+                    item.style.transform = 'none';
+                    item.style.margin = '4px 0';
+                });
+
+                if (afterElement) {
+                    // 显示插入位置指示线
+                    afterElement.style.margin = '12px 0';
+                    list.insertBefore(dragState.draggedTodo, afterElement);
+                } else {
+                    // 添加底部插入指示
+                    list.style.position = 'relative';
+                    list.appendChild(dragState.draggedTodo);
+                }
+            });
+
+            // 新增跨分组拖动支持
+            group.querySelector('.todo-list').addEventListener('dragenter', (e) => {
+                e.preventDefault();
+                if (dragState.sourceGroup !== group) {
+                    group.querySelector('.todo-list').classList.add('drop-target');
+                }
+            });
+
+            group.querySelector('.todo-list').addEventListener('dragleave', (e) => {
+                group.querySelector('.todo-list').classList.remove('drop-target');
+            });
+        }
+        
+        function getTodoInsertPosition(container, y) {
+            return Array.from(container.children)
+                .filter(child => child !== draggedTodo)
+                .reduce((closest, child) => {
+                    const box = child.getBoundingClientRect();
+                    const offset = y - box.top - box.height / 2;
+                    return offset < 0 && offset > closest.offset ? 
+                        { offset, element: child } : closest;
+                }, { offset: Number.NEGATIVE_INFINITY }).element;
+        }
+
+        // 历史记录功能
+        function moveToHistory(todo, group) {
+            const history = JSON.parse(localStorage.getItem('todoHistory') || '[]');
+            history.push({
+                text: todo.querySelector('.todo-content').textContent,
+                group: group.dataset.id,
+                completedAt: new Date().toISOString()
+            });
+            localStorage.setItem('todoHistory', JSON.stringify(history));
+            todo.remove();
+        }
+
+        // 修改保存逻辑
+        function saveGroups() {
+            const groups = Array.from(document.querySelectorAll('.group-header')).map(group => ({
+                id: group.dataset.id,
+                name: group.querySelector('.group-content').textContent,
+                order: Array.from(groupsContainer.children).indexOf(group),
+                todos: Array.from(group.querySelectorAll('.todo-item')).map(todo => ({
+                    text: todo.querySelector('.todo-content').textContent,
+                    completed: todo.querySelector('.todo-checkbox').checked,
+                    created: todo.dataset.created,
+                    order: Array.from(todo.parentNode.children).indexOf(todo)
+                }))
+            }));
+            
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(groups));
+        }
+
+        // 在初始化时加载历史按钮功能
+        document.querySelectorAll('.history-btn').forEach(btn => {
+            btn.addEventListener('click', showHistory);
+        });
+
+        // 历史面板控制
+        function showHistory(groupId) {
+            const panel = document.querySelector('.history-panel');
+            panel.classList.toggle('active');
+            
+            // 清空旧数据
+            panel.querySelector('.history-list').innerHTML = '';
+            
+            // 加载对应分组的历史记录
+            const history = JSON.parse(localStorage.getItem('todoHistory') || '[]')
+                .filter(item => item.group === groupId)
+                .map(item => `
+                    <div class="history-item">
+                        <span>${new Date(item.completedAt).toLocaleString()}</span>
+                        <div>${item.text}</div>
+                    </div>
+                `).join('');
+            
+            panel.querySelector('.history-list').innerHTML = history || '<div>暂无历史记录</div>';
+        }
+
+        function exportData() {
+            const data = {
+                groups: JSON.parse(localStorage.getItem(STORAGE_KEY)),
+                history: JSON.parse(localStorage.getItem('todoHistory'))
+            };
+            
+            const blob = new Blob([JSON.stringify(data)], {type: 'application/json'});
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'todo_backup.json';
+            a.click();
+        }
+
+        function importData(file) {
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                const data = JSON.parse(e.target.result);
+                localStorage.setItem(STORAGE_KEY, JSON.stringify(data.groups));
+                localStorage.setItem('todoHistory', JSON.stringify(data.history));
+                location.reload();
+            };
+            reader.readAsText(file);
+        }
+
+        const BACKUP_INTERVAL = 300000; // 5分钟自动备份
+        setInterval(() => {
+            const data = {
+                groups: JSON.parse(localStorage.getItem(STORAGE_KEY)),
+                history: JSON.parse(localStorage.getItem('todoHistory'))
+            };
+            sessionStorage.setItem('last_backup', JSON.stringify(data));
+            autoSaveToFile(data);
+        }, BACKUP_INTERVAL);
+
+        // 页面可见性变化监听
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'hidden') {
+                saveGroups();
+            }
+        });
+
+        // 初始化时尝试恢复备份
+        function initBackupRecovery() {
+            // 尝试恢复sessionStorage备份
+            
+            // 尝试恢复本地文件备份
+            if (navigator.storage && navigator.storage.persist) {
+                navigator.storage.persist().then(granted => {
+                    if (granted) {
+                        console.log('存储空间已持久化');
+                    }
+                });
+            }
+        }
+    </script>
+</body>
+</html>
