@@ -3,6 +3,7 @@
     <meta charset="UTF-8">
     <title>横向待办分组</title>
     <style>
+        
         body {
             margin: 0;
             padding: 10px;
@@ -255,6 +256,7 @@
             draggedTodo: null,
             sourceGroup: null
         };
+        
 
         // 初始化加载数据
         document.addEventListener('DOMContentLoaded', () => {
@@ -386,15 +388,6 @@
             });
         }
 
-        // 数据存储
-        function saveGroups() {
-            const groups = Array.from(document.querySelectorAll('.group-header')).map(group => ({
-                name: group.querySelector('.group-content').textContent, // 精确获取内容区域
-                order: Array.from(groupsContainer.children).indexOf(group)
-            }));
-            localStorage.setItem(STORAGE_KEY, JSON.stringify(groups));
-        }
-
         // 辅助函数
         function getHorizontalDragAfterElement(x) {
             return Array.from(groupsContainer.children)
@@ -406,7 +399,7 @@
                         { offset, element: child } : closest;
                 }, { offset: Number.NEGATIVE_INFINITY }).element;
         }
-
+        
         function getVerticalDragAfterElement(container, y) {
             const draggableElements = [...container.children]
                 .filter(child => 
@@ -453,15 +446,28 @@
             group.querySelector('.todo-list').appendChild(todo);
 
             const contentDiv = todo.querySelector('.todo-content');
-            setTimeout(() => {
-                contentDiv.focus();
-                const range = document.createRange();
-                const sel = window.getSelection();
-                range.selectNodeContents(contentDiv);
-                range.collapse(false); // 光标定位到末尾
-                sel.removeAllRanges();
-                sel.addRange(range);
-            }, 10); // 小延迟确保DOM更新完成
+            contentDiv.addEventListener('focus', function() {
+                // 确保内容为空时显示 placeholder
+                if (!this.textContent.trim()) return;
+                
+                // 异步处理确保浏览器完成默认聚焦
+                setTimeout(() => {
+                    const range = document.createRange();
+                    const sel = window.getSelection();
+                    range.selectNodeContents(this);
+                    range.collapse(false); // 移动到末尾
+                    sel.removeAllRanges();
+                    sel.addRange(range);
+                }, 0);
+            });
+
+            // 保留原有的新建时光标设置
+            if (!data.text) {
+                setTimeout(() => {
+                    contentDiv.focus();
+                    // 原有新建时光标逻辑...
+                }, 10);
+            }
             
             return todo;
         }
